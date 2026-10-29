@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn -q -B test:*)",
+      "Bash(mvn -q -B compile:*)",
+      "Bash(mvn -B test:*)",
+      "Bash(mvn test:*)",
+      "Bash(mvn compile:*)",
+      "Bash(python -I .claude/skills/audit-log/summarize.py:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [
+    ]
+  }
+}

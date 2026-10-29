@@ -1,0 +1,132 @@
+# ===================================================================
+# Alfresco Streaming Reverse Proxy Configuration — EXAMPLE
+#
+# Copy to application.yaml (git-ignored) and fill in real values:
+#   cp application.example.yaml application.yaml
+# Never commit real credentials. Prefer env vars / CLI flags for secrets:
+#   TARGET_USERNAME / TARGET_PASSWORD, FALLBACK_TARGET_USERNAME / FALLBACK_TARGET_PASSWORD
+# ===================================================================
+
+proxy:
+  # Local port on which the reverse proxy listens
+  port: 9081
+
+  # Target Alfresco server base URL (primary)
+  target-base-url: "http://gesraco-alfresco7.afeliodev.local:8080"
+
+  # Basic Authentication for primary target (overwrites Authorization header)
+  # Supports username & password, user:password string, or base64 token
+  target-auth:
+    username: "<primary-user>"
+    password: "<primary-password>"
+  # Alternatively:
+  # target-auth: "user:password"
+
+  # Request blocking rules for primary target
+  # When blocked on primary target, request automatically fails over to fallback target
+  # (if fallback target allows it; if fallback also blocks it or isn't set, returns HTTP 403 Forbidden).
+  #target-blocked-requests:
+  #  - methods: ["PUT"]                        # Block all PUT requests
+  #  - path: "/api/test/hello"
+  #    methods: ["POST"]                       # Block POST on /api/test/hello
+  #  - path: "/api/test/test"                  # Block all HTTP methods on /api/test/test
+  #  - path: "/api/secure/**"                  # Wildcards supported (* for single segment, ** for recursive)
+
+  # Fallback target server base URL (used when primary returns an error, is unreachable, or blocks a request)
+  fallback-target-base-url: "http://gesraco-integ-alfresco.provincedeliege.be:8080"
+
+  # Basic Authentication for fallback target (overwrites Authorization header)
+  fallback-target-auth:
+    username: "<fallback-user>"
+    password: "<fallback-password>"
+  # Alternatively:
+  # fallback-target-auth: "fallbackUser:fallbackPassword"
+
+  # Request blocking rules for fallback target (independent configuration)
+  # Requests matching these rules are never forwarded to the fallback target.
+  fallback-target-blocked-requests:
+    - path: "/alfresco/api/*/public/alfresco/versions/1/nodes/**"
+      methods: [ "POST", "PUT", "DELETE" ]       # Never write to the fallback through the REST nodes endpoint
+
+  # HTTP status codes from primary target that trigger forwarding to fallback target
+  fallback-on-status:
+    - 500
+    - 502
+    - 503
+    - 504
+    - 404
+    - 403
+
+  # NDJSON audit log configuration
+  logging:
+    file: "requests.json"
+    max-text-bytes: 524288 # 512 KB
+    redact-sensitive-headers: true
+    sensitive-headers:
+      - "authorization"
+      - "cookie"
+      - "set-cookie"
+      - "x-auth-token"
+      - "alf_ticket"
+
+  # Target connection timeouts
+  timeouts:
+    connect-seconds: 15
+    request-minutes: 10
+
+  # Header forwarding settings
+  forwarding:
+    add-forwarded-headers: true
+
+  # Directory scanned for plugin jars providing extra document APIs (see README, "Document APIs")
+  plugins-directory: "plugins"
+
+  # Local document store
+  # Documents found on the primary or fallback target are copied (metadata, content) to
+  # <directory>/<api>/<space>/<store>/<guid>/node.json (+ content-*.bin) and served from there afterwards.
+  # Writes on documents (metadata, content, delete, create, upload, copy, move, lock) are applied to the local
+  # copy only. While enabled, NO write request (POST/PUT/PATCH/DELETE) is ever forwarded to Alfresco, except the
+  # read-only POSTs declared by the APIs (e.g. REST search) and the ones listed below.
+  local-store:
+    enabled: true
+    directory: "local-store"
+    copy-content-eagerly: true           # download content together with metadata on first read
+    read-only-post-paths: [ ]            # extra read-only POSTs (glob paths)
+    apis:
+      # Standard Alfresco REST API v1 (/alfresco/api/-default-/public/alfresco/versions/1/nodes/...)
+      - name: "alfresco-rest"
+        legacy-content: true             # also serve /alfresco/s/api/node/content/... from the copies
+        folder-types: "cm:folder"        # comma-separated node types created as folders
+      # A document API from a plugin jar, with its own settings:
+      # - name: "<provider-name>"
+      #   <setting>: <value>
+    # Other URLs described in configuration only (checked before the APIs, first match wins; see README "Routes").
+    # Modes: proxy | cache (GET/HEAD) | simulate (store: body | delete | none) | block
+    #routes:
+    #  - path: "/alfresco/s/my-api/nodes/{space}/{store}/{guid}/metadata"
+    #    methods: [GET, HEAD]
+    #    mode: cache
+    #    key: "{guid}/metadata"                # rules sharing a key share the local resource
+    #  - path: "/alfresco/s/my-api/nodes/{space}/{store}/{guid}/metadata"
+    #    methods: [PUT, POST]
+    #    mode: simulate                        # stored locally, visible to later reads
+    #    key: "{guid}/metadata"
+    #  - path: "/alfresco/s/my-api/search"
+    #    methods: [POST]
+    #    mode: proxy
+    #    read-only: true                       # a POST that doesn't modify data
+    #allow-write-proxy: false                  # true lets proxy routes send real writes to Alfresco
+
+  # Selective direct responses (mocking, health-checks, probes)
+  direct-responses:
+    - path: "/proxy/echo"
+      methods:
+        - "POST"
+        - "PUT"
+      echo: true                          # answers {"status":"ok","method":..,"path":..,"received":<body>}
+    - path: "/health"
+      methods:
+        - "GET"
+      status: 200
+      content-type: "application/json"
+      body: '{"status":"UP","proxy":"Jetty"}'
